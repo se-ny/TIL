@@ -1,0 +1,29 @@
+1. RAG(검색 증강 생성) 전체 흐름도
+이 사진은 AI가 학습하지 않은 최신 데이터나 특정 문서를 찾아보고 답변을 생성하는 RAG(Retrieval-Augmented Generation)의 전체 과정을 보여줍니다.
+
+① Question: 사용자가 궁금한 내용을 질문합니다.
+
+② Semantic Search: 질문의 의미를 파악하여 Vector Database에서 가장 관련 있는 지식(Contextual Data)을 검색합니다.
+
+③ Prompt: 원래의 질문과 검색으로 찾아낸 지식을 합쳐서 LLM(인공지능 모델)에게 전달합니다.
+
+④ Post Processing: 모델이 지식을 바탕으로 답변을 생성하면, 이를 다듬어 사용자에게 최종 응답(Response)을 보냅니다.
+
+2. 데이터 임베딩 및 검색 상세 과정
+이 사진은 위 흐름도 중에서 데이터가 어떻게 저장되고 검색되는지를 더 구체적으로 보여주는 그림입니다.
+
+데이터 저장 (상단):
+
+Knowledge Base: 원본 데이터를 준비합니다.
+
+Data Chunks: 데이터를 처리하기 쉽게 작은 조각으로 나눕니다.
+
+Embedding Model: 이 조각들을 숫자 형태(Embedding)로 변환하여 Vector DB에 저장합니다.
+
+사용자 검색 (하단):
+
+User Query: 사용자가 질문을 입력합니다.
+
+Query Embedding: 질문 역시 숫자로 변환한 뒤 DB에서 가장 유사한 데이터를 찾습니다.
+
+Retrieved Documents: 질문과 가장 관련성이 높은 문서들을 최종적으로 골라냅니다.
