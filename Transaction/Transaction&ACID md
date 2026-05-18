@@ -1,0 +1,141 @@
+# TIL: 트랜잭션(Transaction)과 ACID
+
+> 날짜: 2026-05-18
+> 태그: `#Database` `#Backend` `#Transaction` `#ACID`
+
+---
+
+## 📌 트랜잭션이란?
+
+**트랜잭션(Transaction)** 은 데이터베이스에서 **하나의 논리적 작업 단위**를 말한다.
+
+여러 쿼리가 묶여 있을 때, **전부 성공하거나 전부 실패해야** 하는 경우에 사용한다.
+
+### 💡 대표적인 예시: 계좌 이체
+
+```
+A 계좌에서 10만원 출금 → B 계좌에 10만원 입금
+```
+
+만약 출금 후 입금 중에 오류가 나면? → A의 돈만 사라지는 재앙 발생  
+→ 이걸 방지하기 위해 **트랜잭션**으로 묶는다.
+
+```sql
+BEGIN;
+
+UPDATE accounts SET balance = balance - 100000 WHERE id = 'A';
+UPDATE accounts SET balance = balance + 100000 WHERE id = 'B';
+
+COMMIT;  -- 둘 다 성공하면 반영
+-- 중간에 오류나면 ROLLBACK → 아무것도 반영 안 됨
+```
+
+---
+
+## 📌 ACID 속성
+
+ACID는 트랜잭션이 **안전하게 수행되기 위해 보장해야 하는 4가지 특성**이다.
+
+---
+
+### ✅ A — Atomicity (원자성)
+
+> **"전부 아니면 전무 (All or Nothing)"**
+
+트랜잭션 내의 작업은 **모두 성공**하거나, 실패하면 **모두 취소(ROLLBACK)** 된다.  
+중간 상태는 절대 DB에 반영되지 않는다.
+
+```
+출금 성공 + 입금 실패 → 전체 ROLLBACK (출금도 취소)
+출금 성공 + 입금 성공 → COMMIT
+```
+
+---
+
+### ✅ C — Consistency (일관성)
+
+> **"트랜잭션 전후, DB는 항상 유효한 상태여야 한다"**
+
+DB에 정의된 제약 조건(constraints)이 트랜잭션 전후에 항상 만족되어야 한다.
+
+```
+예) balance는 음수가 될 수 없다는 제약이 있을 때:
+잔액 5만원인 계좌에서 10만원 출금 시도 → 제약 위반 → 트랜잭션 거부
+```
+
+데이터 무결성을 지키는 것이 핵심이다.
+
+---
+
+### ✅ I — Isolation (격리성)
+
+> **"동시에 실행되는 트랜잭션끼리 서로 간섭하면 안 된다"**
+
+여러 트랜잭션이 동시에 실행될 때, **각 트랜잭션은 혼자 실행되는 것처럼** 동작해야 한다.
+
+#### 격리 수준 (Isolation Level) — 낮음 → 높음
+
+| 격리 수준 | Dirty Read | Non-Repeatable Read | Phantom Read |
+|-----------|:----------:|:-------------------:|:------------:|
+| READ UNCOMMITTED | ❌ 발생 | ❌ 발생 | ❌ 발생 |
+| READ COMMITTED | ✅ 방지 | ❌ 발생 | ❌ 발생 |
+| REPEATABLE READ | ✅ 방지 | ✅ 방지 | ❌ 발생 |
+| SERIALIZABLE | ✅ 방지 | ✅ 방지 | ✅ 방지 |
+
+> 격리 수준이 높을수록 안전하지만 **성능(동시성)은 낮아진다**.  
+> MySQL InnoDB의 기본값은 `REPEATABLE READ`.
+
+---
+
+### ✅ D — Durability (지속성)
+
+> **"COMMIT된 트랜잭션은 영구적으로 반영된다"**
+
+시스템 장애(서버 다운, 정전)가 발생해도 **COMMIT된 데이터는 사라지지 않는다**.  
+DB는 WAL(Write-Ahead Logging) 등의 기법으로 이를 보장한다.
+
+---
+
+## 📌 트랜잭션 제어 명령어
+
+```sql
+BEGIN;        -- 트랜잭션 시작 (또는 START TRANSACTION)
+COMMIT;       -- 작업 확정, DB에 반영
+ROLLBACK;     -- 작업 취소, 이전 상태로 되돌리기
+SAVEPOINT sp; -- 중간 저장점 설정
+ROLLBACK TO SAVEPOINT sp; -- 저장점까지만 롤백
+```
+
+---
+
+## 📌 실무에서 주의할 점
+
+- **트랜잭션은 짧게** 유지하자 → 길수록 락(Lock)이 오래 걸려 성능 저하
+- **격리 수준은 상황에 맞게** 선택 → 금융 서비스는 높게, 조회 위주는 낮게
+- **JPA/Hibernate** 사용 시 `@Transactional` 어노테이션의 동작 방식 꼭 이해하기
+  - `@Transactional`은 기본적으로 `REQUIRED` 전파 속성 → 부모 트랜잭션에 합류
+  - `RuntimeException` 발생 시 자동 롤백, `CheckedException`은 롤백 안 됨 (주의!)
+
+```java
+@Transactional
+public void transfer(String fromId, String toId, int amount) {
+    accountRepository.withdraw(fromId, amount);
+    accountRepository.deposit(toId, amount);
+    // 예외 발생 시 전체 롤백됨
+}
+```
+
+---
+
+## 💭 오늘 느낀 점
+
+- ACID를 단순 암기가 아니라 **"왜 이 속성이 필요한가"** 로 이해하니 훨씬 와닿는다
+- 격리 수준이 성능과 트레이드오프 관계라는 점이 흥미로웠다
+- 실무에서 `@Transactional` 쓸 때 CheckedException 주의는 진짜 중요할 것 같다
+
+---
+
+## 📚 참고
+
+- [MySQL 공식 문서 - InnoDB Transaction Model](https://dev.mysql.com/doc/refman/8.0/en/innodb-transaction-model.html)
+- [PostgreSQL 공식 문서 - Transaction Isolation](https://www.postgresql.org/docs/current/transaction-iso.html)
