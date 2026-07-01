@@ -1,0 +1,149 @@
+# TIL: FastAPI Dependency Injection (Depends)
+
+> 날짜: 2026-06-26  
+> 태그: `#FastAPI` `#Python` `#DependencyInjection` `#Depends` `#Backend`
+
+---
+
+## 📌 의존성 주입이란?
+
+**의존성 주입(Dependency Injection)** 은 함수나 클래스가 필요로 하는 객체를
+**직접 생성하지 않고 외부에서 주입받는 패턴**이다.
+
+❌ 의존성 주입 없이
+@app.get("/users/me")
+def get_current_user(token: str = Header(...)):
+# 모든 엔드포인트마다 토큰 검증 로직 반복
+payload = jwt.decode(token, SECRET_KEY)
+user = db.query(User).filter(User.id == payload["sub"]).first()
+if not user:
+raise HTTPException(status_code=401)
+return user
+✅ 의존성 주입 사용
+@app.get("/users/me")
+def get_current_user(current_user: User = Depends(get_current_user_dep)):
+return current_user  # 토큰 검증은 Depends가 알아서 처리
+
+---
+
+## 📌 Depends 기본 사용법
+
+```python
+from fastapi import FastAPI, Depends
+
+app = FastAPI()
+
+# 의존성 함수 정의
+def get_query_params(skip: int = 0, limit: int = 10):
+    return {"skip": skip, "limit": limit}
+
+# 엔드포인트에서 주입받기
+@app.get("/users")
+def get_users(params: dict = Depends(get_query_params)):
+    # GET /users?skip=0&limit=10
+    return {"skip": params["skip"], "limit": params["limit"]}
+
+@app.get("/items")
+def get_items(params: dict = Depends(get_query_params)):
+    # 같은 의존성을 여러 엔드포인트에서 재사용
+    return {"skip": params["skip"], "limit": params["limit"]}
+```
+
+---
+
+## 📌 DB 세션 의존성 — 가장 많이 쓰이는 패턴
+
+```python
+from fastapi import Depends
+from sqlalchemy.orm import Session
+from database import SessionLocal
+
+# DB 세션 의존성
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db          # 엔드포인트에 세션 주입
+    finally:
+        db.close()        # 요청 완료 후 자동으로 세션 닫힘
+
+# 엔드포인트에서 사용
+@app.get("/users/{user_id}")
+def get_user(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="사용자 없음")
+    return user
+
+@app.post("/users")
+def create_user(user: UserCreate, db: Session = Depends(get_db)):
+    db_user = User(**user.dict())
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+```
+
+> `yield`를 사용하면 요청 처리 전/후 로직을 분리할 수 있다.
+> 세션 열기 → 요청 처리 → 세션 닫기가 자동으로 보장된다.
+
+---
+
+## 📌 인증 의존성 — JWT 토큰 검증
+
+```python
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import JWTError, jwt
+
+security = HTTPBearer()
+
+# JWT 토큰 검증 의존성
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+) -> User:
+    token = credentials.credentials
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="유효하지 않은 토큰")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="토큰 검증 실패")
+
+    user = db.query(User).filter(User.id == int(user_id)).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="사용자 없음")
+
+    return user
+
+# 관리자 권한 의존성 (의존성 체인)
+def get_admin_user(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role != "ADMIN":
+        raise HTTPException(status_code=403, detail="관리자만 접근 가능합니다")
+    return current_user
+
+
+# 엔드포인트에서 사용
+@app.get("/users/me")
+def get_my_profile(current_user: User = Depends(get_current_user)):
+    return current_user  # 토큰 검증이 자동으로 처리됨
+
+@app.delete("/users/{user_id}")
+def delete_user(
+    user_id: int,
+    admin: User = Depends(get_admin_user),  # 관리자만 접근 가능
+    db: Session = Depends(get_db)
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    db.delete(user)
+    db.commit()
+    return {"message": "삭제 완료"}
+```
+
+---
+
+## 📌 의존성 체인 (Dependency Chain)
+
+의존성이 다른 의존성을 가질 수 있다.
